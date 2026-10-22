@@ -270,3 +270,125 @@ def interactive(period=DAY):
 
 def hm(s, e):
     return (parse_time(s), parse_time(e))
+
+
+# --------------------------------------------------------------------------
+# 5.  Command-line entry point
+# --------------------------------------------------------------------------
+
+def _demo_cases():
+    return [
+        ("overlapping pair", [(540, 600), (570, 630)], True),
+        ("disjoint pair", [(540, 600), (660, 720)], False),
+        ("midnight wrap-around pair", [(1380, 60), (30, 90)], True),
+    ]
+
+
+def _print_solution(pairs, chosen):
+    if chosen is None:
+        print("No valid subset exists.")
+        return 0
+
+    print("Selected lectures (1-indexed):",
+          ", ".join(str(i + 1) for i in chosen))
+    _, adj = build_graph(to_arcs(pairs, DAY), DAY)
+    valid = verify(pairs, chosen, DAY)
+
+    for v in range(len(pairs)):
+        supervisors = [j for j in chosen if (adj[v] >> j) & 1]
+        if len(supervisors) == 1:
+            print(f"Lecture {v + 1} is supervised by lecture {supervisors[0] + 1}.")
+        else:
+            print(f"Lecture {v + 1} has {len(supervisors)} selected neighbours.")
+
+    print("Verification:", "PASSED" if valid else "FAILED")
+    return 0 if valid else 1
+
+
+def _run_demo():
+    all_passed = True
+    for name, pairs, should_exist in _demo_cases():
+        chosen = solve(pairs)
+        passed = ((chosen is not None) == should_exist)
+        if chosen is not None:
+            passed = passed and verify(pairs, chosen, DAY)
+        print(f"{name}: {'PASS' if passed else 'FAIL'}")
+        if chosen is not None:
+            print("  selected lectures:", [i + 1 for i in chosen])
+        all_passed = all_passed and passed
+    return 0 if all_passed else 1
+
+
+def _run_stress(trials):
+    if trials < 1:
+        print("--stress must be a positive integer.", file=sys.stderr)
+        return 2
+
+    for trial in range(1, trials + 1):
+        n = random.randint(2, 8)  # Keep brute force practical.
+        pairs = []
+        for _ in range(n):
+            start = random.randrange(DAY)
+            duration = random.randint(1, 180)
+            pairs.append((start, (start + duration) % DAY))
+
+        result = solve(pairs)
+        reference = brute_force(pairs)
+        if ((result is None) != (reference is None)
+                or (result is not None and not verify(pairs, result, DAY))):
+            print(f"Stress test failed at trial {trial}.", file=sys.stderr)
+            print("Input:", pairs, file=sys.stderr)
+            print("Solver:", result, "Brute force:", reference, file=sys.stderr)
+            return 1
+
+    print(f"Stress test PASSED: {trials} random cases.")
+    return 0
+
+
+def _print_latex_report():
+    print(r"\begin{tabular}{lcr}")
+    print(r"\hline")
+    print(r"Test case & Lectures & Result \\")
+    print(r"\hline")
+    for name, pairs, should_exist in _demo_cases():
+        result = solve(pairs)
+        passed = ((result is not None) == should_exist)
+        if result is not None:
+            passed = passed and verify(pairs, result, DAY)
+        safe_name = name.replace("_", r"\_")
+        print(f"{safe_name} & {len(pairs)} & "
+              f"{'PASSED' if passed else 'FAILED'} " + r"\\")
+    print(r"\hline")
+    print(r"\end{tabular}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Find an efficient open dominating set for circular-arc lectures."
+    )
+    parser.add_argument("input", nargs="?", help="input file; omit for interactive input")
+    parser.add_argument("--demo", action="store_true", help="run built-in demonstration cases")
+    parser.add_argument("--stress", type=int, metavar="N",
+                        help="compare the solver with brute force on N random small cases")
+    parser.add_argument("--latex-report", action="store_true",
+                        help="print a small LaTeX table of demonstration results")
+    args = parser.parse_args()
+
+    if args.demo:
+        return _run_demo()
+    if args.stress is not None:
+        return _run_stress(args.stress)
+    if args.latex_report:
+        _print_latex_report()
+        return 0
+
+    try:
+        pairs = read_file(args.input) if args.input else interactive()
+        return _print_solution(pairs, solve(pairs))
+    except (OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
