@@ -1,0 +1,9 @@
+8                # number of lectures; then one "start end" line per lecture (24-hour HH:MM)
+00:00 02:00      # lecture 1
+01:00 03:00      # lecture 2
+00:30 01:00      # lecture 3
+08:00 10:00      # lecture 4
+09:00 11:00      # lecture 5
+08:30 09:00      # lecture 6
+16:00 18:00      # lecture 7
+17:00 19:00      # lecture 8
