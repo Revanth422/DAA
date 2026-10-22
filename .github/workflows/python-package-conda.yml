@@ -1,4 +1,4 @@
-name: Lecture_solver
+name: Lecture Solver
 
 on:
   workflow_dispatch:
@@ -22,5 +22,5 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run my program
-        run: lecturesolver.py
+      - name: Run demo
+        run: python lecture_solver --demo
