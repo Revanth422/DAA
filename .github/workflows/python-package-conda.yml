@@ -1,243 +1,26 @@
-from __future__ import annotations
+name: Lecture_solver
 
-import argparse
-import itertools
-import random
-import sys
-from bisect import bisect_left
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - lecture_solver
 
-DAY = 1440  # minutes per day
-INF = float("inf")
+permissions:
+  contents: read
 
+jobs:
+  run-program:
+    runs-on: ubuntu-latest
 
-# --------------------------------------------------------------------------
-# 1.  Parsing and basic geometry
-# --------------------------------------------------------------------------
-def parse_time(token: str, period: int = DAY) -> int:
-    """'HH:MM' or a plain integer -> integer time in [0, period)."""
-    if ":" in token:
-        hh, mm = token.split(":")
-        return (int(hh) * 60 + int(mm)) % period
-    return int(token) % period
+    steps:
+      - name: Download repository code
+        uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
-def fmt_time(t: int) -> str:
-    return f"{t // 60:02d}:{t % 60:02d}"
-
-
-def to_arcs(pairs, period=DAY):
-    """[(start, end)] -> [(start, duration)], duration in 1..period."""
-    arcs = []
-    for s, e in pairs:
-        s %= period
-        d = (e - s) % period
-        arcs.append((s, d if d else period))
-    return arcs
-
-
-def arc_mask(s: int, d: int, period: int) -> int:
-    """Bit-mask of the unit cells covered by the arc (cyclic)."""
-    full = (1 << period) - 1
-    m = ((1 << d) - 1) << s
-    return (m | (m >> period)) & full
-
-
-def build_graph(arcs, period):
-    """Return (cell masks, adjacency bitsets over lecture indices)."""
-    n = len(arcs)
-    masks = [arc_mask(s, d, period) for s, d in arcs]
-    adj = [0] * n
-    for i in range(n):
-        for j in range(i + 1, n):
-            if masks[i] & masks[j]:
-                adj[i] |= 1 << j
-                adj[j] |= 1 << i
-    return masks, adj
-
-
-# --------------------------------------------------------------------------
-# 2.  Independent checkers (used for verification only)
-# --------------------------------------------------------------------------
-def verify(pairs, chosen, period=DAY) -> bool:
-    """True iff every lecture overlaps exactly one chosen lecture."""
-    arcs = to_arcs(pairs, period)
-    _, adj = build_graph(arcs, period)
-    cmask = 0
-    for c in chosen:
-        cmask |= 1 << c
-    return all(bin(adj[v] & cmask).count("1") == 1 for v in range(len(arcs)))
-
-
-def brute_force(pairs, period=DAY):
-    """Exponential reference solver (only for small n)."""
-    n = len(pairs)
-    arcs = to_arcs(pairs, period)
-    _, adj = build_graph(arcs, period)
-    for subset in range(1, 1 << n):
-        if all(bin(adj[v] & subset).count("1") == 1 for v in range(n)):
-            return [i for i in range(n) if subset >> i & 1]
-    return None
-
-
-# --------------------------------------------------------------------------
-# 3.  The polynomial algorithm
-# --------------------------------------------------------------------------
-def _run_start_len(umask: int, period: int):
-    """Start cell and length of the (single) run of 1-cells in umask."""
-    full = (1 << period) - 1
-    if umask == full:
-        return None
-    rot = ((umask << 1) | (umask >> (period - 1))) & full  # cell c-1 -> bit c
-    start_bit = umask & ~rot
-    return start_bit.bit_length() - 1, bin(umask).count("1")
-
-
-def candidate_blocks(arcs, masks, adj, period):
-    """
-    A *block* is an overlapping pair (a, b) with N(a) & N(b) = {} .
-    Every solution is a disjoint union of blocks, so only these pairs matter.
-    Returns list of (a, b, union_mask, run) ; run = None if union is the circle.
-    """
-    n = len(arcs)
-    blocks = []
-    for a in range(n):
-        for b in range(a + 1, n):
-            if adj[a] >> b & 1 and (adj[a] & adj[b]) == 0:
-                u = masks[a] | masks[b]
-                blocks.append((a, b, u, _run_start_len(u, period)))
-    return blocks
-
-
-def solve(pairs, period=DAY):
-    """
-    Return a sorted list of 0-based lecture indices forming a valid subset,
-    or None if none exists.   Time O(n^3), see the report.
-    """
-    n = len(pairs)
-    if n < 2:
-        return None
-    L = period
-    arcs = to_arcs(pairs, L)
-    masks, adj = build_graph(arcs, L)
-    blocks = candidate_blocks(arcs, masks, adj, L)
-
-    # Special case: one block already wraps the whole circle.
-    for a, b, _, run in blocks:
-        if run is None:
-            return [a, b]
-
-    # Lecture 0 is touched by exactly one block in any solution -> anchor it.
-    anchors = [k for k, blk in enumerate(blocks) if blk[2] & masks[0]]
-
-    for x0 in anchors:
-        chain = _try_anchor(x0, blocks, arcs, L)
-        if chain is not None:
-            return sorted(v for k in chain for v in blocks[k][:2])
-    return None
-
-
-def _try_anchor(x0, blocks, arcs, L):
-    """Linear DP over blocks, with block x0 placed at coordinate 0."""
-    s0, len0 = blocks[x0][3]
-
-    # lecture arcs in coordinates where x0 starts at 0
-    sig = [(s - s0) % L for s, _ in arcs]
-    end = [sg + d for sg, (_, d) in zip(sig, arcs)]
-    order = sorted(range(len(arcs)), key=lambda i: sig[i])
-    sorted_sig = [sig[i] for i in order]
-    pref_max = [-INF]                      # pref_max[k] = max end of first k
-    for i in order:
-        pref_max.append(max(pref_max[-1], end[i]))
-    suf_min = [INF] * (len(arcs) + 1)      # suf_min[k] = min end from k on
-    for k in range(len(arcs) - 1, -1, -1):
-        suf_min[k] = min(suf_min[k + 1], end[order[k]])
-    wrap_max = max(e - L for e in end)     # copies shifted by -L
-
-    def Q(p):   # furthest right end of a lecture that starts before p
-        return max(pref_max[bisect_left(sorted_sig, p)], wrap_max)
-
-    def T(p):   # earliest end of a lecture that starts at or after p
-        return suf_min[bisect_left(sorted_sig, p)]
-
-    # nodes: (start, end, block-id); node 0 is the anchor itself
-    nodes = [(0, len0, x0)]
-    others = []
-    for k, blk in enumerate(blocks):
-        if k == x0:
-            continue
-        s_k, l_k = blk[3]
-        ys = (s_k - s0) % L
-        if ys >= len0 and ys + l_k <= L:   # disjoint from the anchor
-            others.append((ys, ys + l_k, k))
-    nodes += sorted(others)
-
-    m = len(nodes)
-    reach = [False] * m
-    parent = [-1] * m
-    reach[0] = True
-    Qe = [Q(nd[1]) for nd in nodes]
-    Te = [T(nd[1]) for nd in nodes]
-
-    def chain_to(j):
-        out = []
-        while j != -1:
-            out.append(nodes[j][2])
-            j = parent[j]
-        return out[::-1]
-
-    # k = 1 : the anchor alone covers everything
-    if L < Te[0]:
-        return [x0]
-
-    for j in range(1, m):
-        ys = nodes[j][0]
-        for i in range(j):
-            if reach[i] and nodes[i][1] <= ys and Qe[i] <= ys < Te[i]:
-                reach[j], parent[j] = True, i
-                break
-        # closing edge  j -> anchor shifted by L   (needs k >= 2)
-        if reach[j] and Qe[j] <= L < Te[j]:
-            return chain_to(j)
-    return None
-
-
-# --------------------------------------------------------------------------
-# 4.  Reporting helpers
-# --------------------------------------------------------------------------
-def parse_tokens(tok, period=DAY):
-    """Token list [n, s1, e1, s2, e2, ...] -> list of (start, end)."""
-    if not tok:
-        raise ValueError("empty input")
-    n = int(tok[0])
-    if n < 0 or len(tok) != 1 + 2 * n:
-        raise ValueError(f"expected n and then {n} start/end pairs "
-                         f"({1 + 2 * n} values), got {len(tok)} values")
-    return [(parse_time(tok[1 + 2 * i], period), parse_time(tok[2 + 2 * i], period))
-            for i in range(n)]
-
-
-def read_file(path, period=DAY):
-    """Read a file, or standard input when path is '-'. '#' starts a comment."""
-    fh = sys.stdin if path == "-" else open(path)
-    with fh:
-        text = "\n".join(line.split("#")[0] for line in fh)
-    return parse_tokens(text.split(), period)
-
-
-def interactive(period=DAY):
-    """Ask the user to type the lectures one by one."""
-    n = int(input("Number of lectures n: "))
-    pairs = []
-    for i in range(1, n + 1):
-        while True:
-            try:
-                s, e = input(f"Lecture {i} - start end (HH:MM HH:MM): ").split()
-                pairs.append((parse_time(s, period), parse_time(e, period)))
-                break
-            except ValueError:
-                print("  please enter two times such as 09:30 11:00")
-    return pairs
-
-
-def hm(s, e):
-    return (parse_time(s), parse_time(e))
+      - name: Run my program
+        run: lecturesolver.py
