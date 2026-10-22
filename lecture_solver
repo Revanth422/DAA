@@ -348,7 +348,7 @@ def _run_stress(trials):
 def _print_latex_report():
     print(r"\begin{tabular}{lcr}")
     print(r"\hline")
-    print(r"Test case & Lectures & Result \\")
+    print("Test case & Lectures & Result " + chr(92) * 2)
     print(r"\hline")
     for name, pairs, should_exist in _demo_cases():
         result = solve(pairs)
