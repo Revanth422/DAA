@@ -8,7 +8,6 @@ and may wrap past midnight. Algorithm: O(n^3) time, O(n^2) bits of space
 
 ## Requirements
 - Python 3.8 or newer (standard library only, nothing to install)
-- To rebuild the report: a LaTeX distribution (pdflatex, latexmk)
 
 ## Files
 - `lecture_solver.py` - the algorithm, brute-force checker, command-line tool
@@ -35,7 +34,7 @@ Conventions:
     python3 lecture_solver.py                 # type the lectures in interactively
     python3 lecture_solver.py mydata.txt      # read your own file
     cat mydata.txt | python3 lecture_solver.py -   # read from standard input
-    python3 lecture_solver.py --demo          # 8 built-in test cases
+    python3 lecture_solver.py --demo          # three built-in demonstration cases
     python3 lecture_solver.py --stress 1000   # compare with brute force
 
 ## Output
