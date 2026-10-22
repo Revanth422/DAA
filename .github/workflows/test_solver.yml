@@ -26,5 +26,8 @@ jobs:
       - name: Run sample input
         run: python lecture_solver.py sample.txt
 
+      - name: Run my own input
+        run: python lecture_solver.py mydata.txt
+
       - name: Run randomized stress test
         run: python lecture_solver.py --stress 100
